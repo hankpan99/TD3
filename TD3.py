@@ -71,6 +71,7 @@ class TD3(object):
 		state_dim,
 		action_dim,
 		max_action,
+		ablation,
 		discount=0.99,
 		tau=0.005,
 		policy_noise=0.2,
@@ -87,11 +88,12 @@ class TD3(object):
 		self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=3e-4)
 
 		self.max_action = max_action
+		self.ablation = ablation
 		self.discount = discount
 		self.tau = tau
 		self.policy_noise = policy_noise
 		self.noise_clip = noise_clip
-		self.policy_freq = policy_freq
+		self.policy_freq = 1 if "delay" in self.ablation else policy_freq
 
 		self.total_it = 0
 
@@ -108,14 +110,19 @@ class TD3(object):
 		state, action, next_state, reward, not_done = replay_buffer.sample(batch_size)
 
 		with torch.no_grad():
-			# Select action according to policy and add clipped noise
-			noise = (
-				torch.randn_like(action) * self.policy_noise
-			).clamp(-self.noise_clip, self.noise_clip)
-			
-			next_action = (
-				self.actor_target(next_state) + noise
-			).clamp(-self.max_action, self.max_action)
+			if "noise" in self.ablation:
+				next_action = (
+					self.actor_target(next_state)
+				).clamp(-self.max_action, self.max_action)
+			else:
+				# Select action according to policy and add clipped noise
+				noise = (
+					torch.randn_like(action) * self.policy_noise
+				).clamp(-self.noise_clip, self.noise_clip)
+
+				next_action = (
+					self.actor_target(next_state) + noise
+				).clamp(-self.max_action, self.max_action)
 
 			# Compute the target Q value
 			target_Q1, target_Q2 = self.critic_target(next_state, next_action)
@@ -126,7 +133,12 @@ class TD3(object):
 		current_Q1, current_Q2 = self.critic(state, action)
 
 		# Compute critic loss
-		critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
+		if "clip" in self.ablation:
+			target_Q1 = reward + not_done * self.discount * target_Q2
+			target_Q2 = reward + not_done * self.discount * target_Q1
+			critic_loss = F.mse_loss(current_Q1, target_Q1) + F.mse_loss(current_Q2, target_Q2)
+		else:
+			critic_loss = F.mse_loss(current_Q1, target_Q) + F.mse_loss(current_Q2, target_Q)
 
 		# Optimize the critic
 		self.critic_optimizer.zero_grad()

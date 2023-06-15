@@ -8,6 +8,8 @@ import utils
 import TD3
 import OurDDPG
 import DDPG
+from torch.utils.tensorboard import SummaryWriter
+import datetime
 
 
 # Runs policy for X episodes and returns average reward
@@ -50,9 +52,12 @@ if __name__ == "__main__":
 	parser.add_argument("--policy_freq", default=2, type=int)       # Frequency of delayed policy updates
 	parser.add_argument("--save_model", action="store_true")        # Save model and optimizer parameters
 	parser.add_argument("--load_model", default="")                 # Model load file name, "" doesn't load, "default" uses file_name
+	parser.add_argument("--ablation", default="")                 # Model load file name, "" doesn't load, "default" uses file_name
 	args = parser.parse_args()
-
-	file_name = f"{args.policy}_{args.env}_{args.seed}"
+	
+	time_str = datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+	writer = SummaryWriter(f"log/{time_str}_{args.env}_{args.ablation}")
+	file_name = f"{args.policy}_{args.env}_{args.seed}_{args.ablation}"
 	print("---------------------------------------")
 	print(f"Policy: {args.policy}, Env: {args.env}, Seed: {args.seed}")
 	print("---------------------------------------")
@@ -89,6 +94,7 @@ if __name__ == "__main__":
 		kwargs["policy_noise"] = args.policy_noise * max_action
 		kwargs["noise_clip"] = args.noise_clip * max_action
 		kwargs["policy_freq"] = args.policy_freq
+		kwargs["ablation"] = args.ablation
 		policy = TD3.TD3(**kwargs)
 	elif args.policy == "OurDDPG":
 		policy = OurDDPG.DDPG(**kwargs)
@@ -139,6 +145,7 @@ if __name__ == "__main__":
 		if done: 
 			# +1 to account for 0 indexing. +0 on ep_timesteps since it will increment +1 even if done=True
 			print(f"Total T: {t+1} Episode Num: {episode_num+1} Episode T: {episode_timesteps} Reward: {episode_reward:.3f}")
+			# writer.add_scalar('reward',episode_reward,t)
 			# Reset environment
 			state, done = env.reset(), False
 			episode_reward = 0
@@ -148,5 +155,6 @@ if __name__ == "__main__":
 		# Evaluate episode
 		if (t + 1) % args.eval_freq == 0:
 			evaluations.append(eval_policy(policy, args.env, args.seed))
+			writer.add_scalar('reward',evaluations[-1],t)
 			np.save(f"./results/{file_name}", evaluations)
 			if args.save_model: policy.save(f"./models/{file_name}")
